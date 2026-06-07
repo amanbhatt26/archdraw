@@ -1,9 +1,11 @@
 import socketio
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import gzip
 import json
 from urllib.parse import parse_qs
+import shortuuid
+from models import StateSnapshot
 
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=[
@@ -51,12 +53,58 @@ async def snapshot(sid, data):
             continue
         await sio.emit("snapshot",data, to=subscriber)
 
-    
+
+designs = []
 
 
 @api.get("/")
 async def index():
     return {"message":"up and running"}
+
+
+@api.get("/designs")
+async def getDesigns():
+    return {"designs":designs}
+
+
+@api.post("/designs")
+async def postDesign():
+    id = shortuuid.uuid()
+    state_snapshot = StateSnapshot(
+        id=id,
+        nodes={},
+        edges={},
+        node_posx={},
+        node_posy={},
+        node_label={}
+    )
+    state_snapshot.id = id
+    designs.append({"id":id, "state_snapshot": state_snapshot})
+    return {"id":id, "state_snapshot": state_snapshot}
+
+
+@api.get("/designs/{id}")
+async def getDesign(id:str):
+    print(id)
+    
+    for design in designs:
+        if design['id'] == id:
+            return design
+    
+    raise HTTPException(status_code=404, detail="Item not found")
+
+
+@api.delete("/designs/{id}")
+async def deleteDesign(id:str):
+    delIndex = -1
+    for i in range(len(designs)):
+        if designs[i]['id'] == id:
+            delIndex = i
+    
+    if delIndex != -1:
+        designs.pop(delIndex)
+    raise HTTPException(status_code=404, detail="Item not found")
+
 
 app = socketio.ASGIApp(sio, other_asgi_app=api)
 
