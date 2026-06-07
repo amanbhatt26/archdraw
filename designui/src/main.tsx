@@ -3,13 +3,10 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import {App} from './App.tsx'
 import { SharedDocument } from './core/document.ts'
-import { generate } from 'short-uuid'
 import { SyncManager } from './core/syncmanager.ts'
 
 const createDoc = ()=>{
-  const doc = new SharedDocument(generate());
-  doc.addNode(generate(), 20, 40, "hello")
-  doc.addNode(generate(), 40,100, "world")
+  const doc = new SharedDocument("shareddoc1");
   return doc;
 }
 
