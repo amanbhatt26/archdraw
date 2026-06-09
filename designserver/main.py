@@ -1,3 +1,4 @@
+import psycopg2
 import socketio
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +14,11 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=[
 ])
 api = FastAPI()
 api.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"])
+
+# placeholder
+conn = psycopg2.connect("dbname=archdraw user=postgres host=localhost")
+cur = conn.cursor()
+
 
 connected_clients = set()
 doc_subscribers = dict()
@@ -54,9 +60,6 @@ async def snapshot(sid, data):
         await sio.emit("snapshot",data, to=subscriber)
 
 
-designs = []
-
-
 @api.get("/")
 async def index():
     return {"message":"up and running"}
@@ -64,12 +67,18 @@ async def index():
 
 @api.get("/designs")
 async def getDesigns():
+    cur.execute("SELECT * FROM documents")
+    designs_compressed = cur.fetchall()
+    designs = [
+        {"id":id, "state_snapshot":json.loads(str(gzip.decompress(state_snapshot), encoding="utf8"))} 
+        for (id, state_snapshot) in designs_compressed 
+        ]
     return {"designs":designs}
 
 
 @api.post("/designs")
 async def postDesign():
-    id = shortuuid.uuid()
+    id = shortuuid.uuid() 
     state_snapshot = StateSnapshot(
         id=id,
         nodes={},
@@ -78,32 +87,58 @@ async def postDesign():
         node_posy={},
         node_label={}
     )
-    state_snapshot.id = id
-    designs.append({"id":id, "state_snapshot": state_snapshot})
+
+    state_bytes_uncompressed = bytes(state_snapshot.model_dump_json(), encoding="utf8")
+    state_bytes_compressed = gzip.compress(state_bytes_uncompressed)
+
+    cur.execute(
+        """
+        INSERT INTO documents (id, state)
+        VALUES (%s, %s)
+        """,
+        (id, state_bytes_compressed)
+    )
+
+    conn.commit()
+    
+
     return {"id":id, "state_snapshot": state_snapshot}
 
 
 @api.get("/designs/{id}")
 async def getDesign(id:str):
-    print(id)
     
-    for design in designs:
-        if design['id'] == id:
-            return design
+    cur.execute(
+        """
+        SELECT * FROM documents WHERE id=%s
+        """,
+        (id,)
+    )
+
+    design = cur.fetchone()
+
+    if design is None:
+        raise HTTPException(status_code=404, detail=f"Design with id={id} not found.")
     
-    raise HTTPException(status_code=404, detail="Item not found")
+    state_snapshot = json.loads(str(gzip.decompress(design[1]), encoding="utf8"))
+    return {"id":id, "state_snapshot":state_snapshot}
 
 
 @api.delete("/designs/{id}")
 async def deleteDesign(id:str):
-    delIndex = -1
-    for i in range(len(designs)):
-        if designs[i]['id'] == id:
-            delIndex = i
-    
-    if delIndex != -1:
-        designs.pop(delIndex)
-    raise HTTPException(status_code=404, detail="Item not found")
+
+    cur.execute(
+        """
+        DELETE FROM documents
+        WHERE id=%s
+        """,
+        (id,)
+    )
+
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    return {"message":"successfully deleted design"}
 
 
 app = socketio.ASGIApp(sio, other_asgi_app=api)
