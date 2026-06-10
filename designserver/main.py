@@ -6,13 +6,14 @@ import gzip
 import json
 from urllib.parse import parse_qs
 import shortuuid
-from models import StateSnapshot
+from models import StateSnapshot, SharedDocInput
+from core.document import SharedDocument
 
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=[
     "http://localhost:5173"
 ])
-api = FastAPI()
+api = FastAPI(root_path="/api/v1")
 api.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"])
 
 # placeholder
@@ -49,10 +50,38 @@ async def disconnect(sid, environ):
 
 @sio.event
 async def snapshot(sid, data):
-    print(len(data))
+    
     json_string = gzip.decompress(data)
     state_snapshot = json.loads(json_string)
     documentId = state_snapshot['id']
+
+    cur.execute(
+        """
+        SELECT state from documents where id=%s
+        """,
+        (documentId, )
+    )
+
+    (db_state) = cur.fetchone()
+
+    if db_state is None:
+        await sio.emit("error", f"documentId {documentId} not found", to=sid)
+        return
+    
+    db_state_json = json.loads(str(gzip.decompress(db_state[0]), encoding='utf8'))
+    shared_doc = SharedDocument(documentId)
+    shared_doc.merge_state_snapshot(db_state_json)
+    shared_doc.merge_state_snapshot(state_snapshot)
+
+    db_state_compressed = gzip.compress(bytes(json.dumps(shared_doc.state_snapshot()), encoding="utf8"))
+    
+    cur.execute(
+        """
+        UPDATE documents SET state=%s WHERE id=%s
+        """,
+        (db_state_compressed, documentId)
+    )
+    conn.commit()
 
     for subscriber in doc_subscribers[documentId]:
         if subscriber == sid:
@@ -60,49 +89,69 @@ async def snapshot(sid, data):
         await sio.emit("snapshot",data, to=subscriber)
 
 
-@api.get("/")
+@api.get("/health")
 async def index():
     return {"message":"up and running"}
 
 
 @api.get("/designs")
 async def getDesigns():
-    cur.execute("SELECT * FROM documents")
+    cur.execute("SELECT id,name FROM documents")
     designs_compressed = cur.fetchall()
+    
     designs = [
-        {"id":id, "state_snapshot":json.loads(str(gzip.decompress(state_snapshot), encoding="utf8"))} 
-        for (id, state_snapshot) in designs_compressed 
+        {"id":id, "name":name,} 
+        for (id, name) in designs_compressed 
         ]
     return {"designs":designs}
 
 
 @api.post("/designs")
-async def postDesign():
+async def postDesign(sharedDocInput:SharedDocInput):
     id = shortuuid.uuid() 
-    state_snapshot = StateSnapshot(
-        id=id,
-        nodes={},
-        edges={},
-        node_posx={},
-        node_posy={},
-        node_label={}
+    name = sharedDocInput.name
+    state_snapshot = dict({
+            "id":id,
+            "nodes":{"added":[], "removed":[]},
+            "edges":{"added":[], "removed":[]},
+            "node_posx":{},
+            "node_posy":{},
+            "node_label":{}
+        }
     )
 
-    state_bytes_uncompressed = bytes(state_snapshot.model_dump_json(), encoding="utf8")
+    state_bytes_uncompressed = bytes(json.dumps(state_snapshot), encoding="utf8")
     state_bytes_compressed = gzip.compress(state_bytes_uncompressed)
 
     cur.execute(
         """
-        INSERT INTO documents (id, state)
-        VALUES (%s, %s)
+        INSERT INTO documents (id, name, state)
+        VALUES (%s, %s, %s)
         """,
-        (id, state_bytes_compressed)
+        (id, name, state_bytes_compressed)
     )
 
     conn.commit()
     
 
-    return {"id":id, "state_snapshot": state_snapshot}
+    return {"id":id, "name": name, "state_snapshot": state_snapshot}
+
+@api.patch("/designs/{id}")
+async def patchDesign(id:str, sharedDocInput:SharedDocInput):
+    print(sharedDocInput)
+  
+    cur.execute(
+        """
+        UPDATE documents SET name=%s WHERE id=%s
+        """,
+        (sharedDocInput.name, id)
+    )
+    conn.commit()
+
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    return {"message":"document updated"}
 
 
 @api.get("/designs/{id}")
@@ -110,7 +159,7 @@ async def getDesign(id:str):
     
     cur.execute(
         """
-        SELECT * FROM documents WHERE id=%s
+        SELECT id,name,state FROM documents WHERE id=%s
         """,
         (id,)
     )
@@ -120,8 +169,9 @@ async def getDesign(id:str):
     if design is None:
         raise HTTPException(status_code=404, detail=f"Design with id={id} not found.")
     
-    state_snapshot = json.loads(str(gzip.decompress(design[1]), encoding="utf8"))
-    return {"id":id, "state_snapshot":state_snapshot}
+    (id, name, state_snapshot) = design
+    state_snapshot = json.loads(str(gzip.decompress(state_snapshot), encoding="utf8"))
+    return {"id":id, "name":name, "state_snapshot":state_snapshot}
 
 
 @api.delete("/designs/{id}")

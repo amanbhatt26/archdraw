@@ -7,3 +7,7 @@ class StateSnapshot(BaseModel):
     node_posx: dict[str, dict[str,str]]
     node_posy: dict[str, dict[str,str]]
     node_label: dict[str, dict[str, str]]
+
+
+class SharedDocInput(BaseModel):
+    name:str

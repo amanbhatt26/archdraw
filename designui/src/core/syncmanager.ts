@@ -23,7 +23,7 @@ export class SyncManager {
         this.registerSocketHandlers()
         setInterval(()=>{
             this.timedFlush();
-        }, 5000);
+        }, 10000);
     }
 
     registerSocketHandlers(){
@@ -36,13 +36,13 @@ export class SyncManager {
         })
 
         this.socket.on("snapshot", (snapshot:any)=>{
-            console.log("snapshot:", snapshot);
+            // console.log("snapshot:", snapshot);
 
             const compressed = new Uint8Array(snapshot)
             const restoredSnapshot = JSON.parse(pako.ungzip(compressed, {
                 to: "string"
             }))
-            console.log("restored_snapshot",restoredSnapshot)
+            // console.log("restored_snapshot",restoredSnapshot)
             this.doc.mergeStateSnapshot(restoredSnapshot)
         })
     }
@@ -66,7 +66,7 @@ export class SyncManager {
         this.syncInProgress = true;
 
         try {
-            console.log(this.doc.stateSnapshot())
+            // console.log(this.doc.stateSnapshot())s
             const jsonState = JSON.stringify(this.doc.stateSnapshot())
             this.socket.emit("snapshot", pako.gzip(jsonState), (ack:any)=>{
                 this.doc.clearDirty();
@@ -88,7 +88,7 @@ export class SyncManager {
         this.syncInProgress = true;
 
         try {
-            console.log(this.doc.stateSnapshot())
+            // console.log(this.doc.stateSnapshot())
             const jsonState = JSON.stringify(this.doc.stateSnapshot())
             this.socket.emit("snapshot", pako.gzip(jsonState))
             

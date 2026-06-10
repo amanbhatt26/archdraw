@@ -11,9 +11,11 @@
   },
   "dependencies": {
     "@xyflow/react": "^12.11.0",
+    "axios": "^1.17.0",
     "pako": "^2.1.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "react-router": "^7.17.0",
     "short-uuid": "^6.0.3",
     "socket.io-client": "^4.8.3"
   },

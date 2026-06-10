@@ -1,20 +1,14 @@
-import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import {App} from './App.tsx'
-import { SharedDocument } from './core/document.ts'
-import { SyncManager } from './core/syncmanager.ts'
-
-const createDoc = ()=>{
-  const doc = new SharedDocument("shareddoc1");
-  return doc;
-}
-
-const sharedDoc = createDoc()
-const syncManager = new SyncManager(sharedDoc)
-
+import { BrowserRouter, Route } from 'react-router'
+import { Routes } from 'react-router'
+import { LandingPage } from './components/LandingPage.tsx'
+import { DesignPage } from './components/DesignPage.tsx'
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App sharedDoc={sharedDoc} syncManager={syncManager} />
-  </StrictMode>,
+  <BrowserRouter>
+    <Routes>
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/designs/:id" element={<DesignPage/>}/>
+    </Routes>
+  </BrowserRouter>,
 )
