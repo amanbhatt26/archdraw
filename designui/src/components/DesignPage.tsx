@@ -1,4 +1,4 @@
-import {Background, Controls, ReactFlow } from "@xyflow/react"
+import {Background, Controls, ReactFlow, useReactFlow, type Viewport } from "@xyflow/react"
 import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { SharedDocument } from "../core/document"
@@ -6,12 +6,12 @@ import {generate} from "short-uuid";
 import { SyncManager } from "../core/syncmanager";
 import { useParams } from "react-router";
 import axios from "axios";
+import { CatalogueBar } from "./CatalogueBar";
 
 export const DesignPage = ()=>{
     const {id} = useParams()
     const [sharedDoc, setSharedDoc] = useState<SharedDocument>(new SharedDocument(id!))
     const [syncmanager, setSyncManager] = useState<SyncManager>()
-    
 
     const fetchDoc = async ()=>{
         const {data} = await axios.get(`http://localhost:8000/api/v1/designs/${id}`)
@@ -26,6 +26,7 @@ export const DesignPage = ()=>{
     },[])
     
     const DesignPageInternal = ({sharedDoc}:{sharedDoc:SharedDocument})=>{
+        const {screenToFlowPosition} = useReactFlow()
 
         const nodes = useSyncExternalStore(
             sharedDoc.subscribe.bind(sharedDoc),
@@ -105,13 +106,55 @@ export const DesignPage = ()=>{
             },
             [],
         );
+
+        
+        const onCatalogItemDragStart = useCallback((event:React.DragEvent<any>)=>{
+            event.dataTransfer.effectAllowed = 'move';
+        },[])
+
+        const onCatalogItemDragStop = useCallback((event:React.DragEvent<any>)=>{
+            event.preventDefault()
+            const position = screenToFlowPosition({x:event.clientX, y:event.clientY})
+            sharedDoc.addNode(generate(), position.x, position.y, "node")
+        },[])
+
+
+        const { getViewport, setViewport } = useReactFlow();
+
+        const onWheel = useCallback(
+            (e: React.WheelEvent<HTMLDivElement>) => {
+                e.preventDefault();
+
+                const viewport = getViewport();
+                const sensitivity = 0.01;
+                const zoomFactor = Math.exp(-e.deltaY * sensitivity);
+                setViewport({
+                    x: viewport.x - e.deltaX * 0.5,
+                    y: viewport.y - e.deltaY * 0.5,
+                    zoom: e.ctrlKey ? Math.max(
+                        0.1,
+                        Math.min(5, viewport.zoom * zoomFactor)
+                    ):viewport.zoom,
+                });
+            },
+            [getViewport, setViewport]
+        );
+
+
         return <div style={{height:'100vh',width:'100vw'}}>
             <input value={inputValue} onChange={onInputChange}></input>
             <button onClick={onButtonClick}> Add node </button>
-            <ReactFlow nodes={nodes} edges={edges} 
+            <CatalogueBar dragStart={onCatalogItemDragStart} dragStop={onCatalogItemDragStop}/>
+            <ReactFlow onWheel={onWheel} nodes={nodes} edges={edges} 
             onNodesChange={onNodesChange} 
             onEdgesChange={onEdgesChange} 
             onConnect={onConnect}
+            panOnScroll={false}
+            zoomOnScroll={false}
+            zoomOnPinch={false}
+            panOnDrag={false}
+            minZoom={0.2}
+            maxZoom={4}
             
             >
             <Background/>
